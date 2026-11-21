@@ -47,10 +47,53 @@ const initialDiff = `diff --git a/src/Data/UserRepository.cs b/src/Data/UserRepo
 
 export default function App() {
   const [diff, setDiff] = useState(initialDiff);
+  const [sourceType, setSourceType] = useState("Diff");
+  const [sourceIdentifier, setSourceIdentifier] = useState("");
   const [severity, setSeverity] = useState("All");
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
+
+  async function readUploadedFile(file: File) {
+    if (file.size > 1_000_000) {
+      setError("Uploaded file exceeds the 1 MB limit.");
+      return;
+    }
+    setDiff(await file.text());
+  }
+
+  function downloadJson() {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `code-review-${result.analysisId}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadHtml() {
+    if (!result) return;
+    const response = await fetch(`${apiBaseUrl}/api/v1/reports/html`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(result),
+    });
+    if (!response.ok) {
+      setError("Could not generate the HTML report.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `code-review-${result.analysisId}.html`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function analyze(event: FormEvent) {
     event.preventDefault();
@@ -58,11 +101,18 @@ export default function App() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/v1/analyses", {
+      const content = sourceType === "Diff" || sourceType === "UploadedFile"
+        ? diff
+        : sourceIdentifier;
+      const response = await fetch(`${apiBaseUrl}/api/v1/analyses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: { type: "Diff", content: diff },
+          source: {
+            type: sourceType,
+            content,
+            identifier: sourceIdentifier || null,
+          },
           languages: [],
           options: { includeQuality: true, includeOWASP: true, includeLogic: true, maxFindings: 10 },
         }),
@@ -94,8 +144,46 @@ export default function App() {
 
       <section className="input-panel">
         <form onSubmit={analyze}>
-          <label htmlFor="diff">Unified diff or source patch</label>
-          <textarea id="diff" value={diff} onChange={(event) => setDiff(event.target.value)} />
+          <label>
+            Source
+            <select value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
+              <option value="Diff">Paste unified diff</option>
+              <option value="UploadedFile">Upload patch/source file</option>
+              <option value="GitHubPullRequest">GitHub pull request URL</option>
+              <option value="AzureDevOpsPullRequest">Azure DevOps pull request URL</option>
+            </select>
+          </label>
+          {(sourceType === "GitHubPullRequest" || sourceType === "AzureDevOpsPullRequest") && (
+            <label htmlFor="source-url">Pull request URL</label>
+          )}
+          {(sourceType === "GitHubPullRequest" || sourceType === "AzureDevOpsPullRequest") ? (
+            <input
+              id="source-url"
+              className="text-input"
+              value={sourceIdentifier}
+              onChange={(event) => setSourceIdentifier(event.target.value)}
+              placeholder="https://..."
+              required
+            />
+          ) : (
+            <>
+              {sourceType === "UploadedFile" && (
+                <label className="file-picker">
+                  Choose file
+                  <input
+                    type="file"
+                    accept=".diff,.patch,.txt,.py,.js,.jsx,.ts,.tsx,.java,.cs"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void readUploadedFile(file);
+                    }}
+                  />
+                </label>
+              )}
+              <label htmlFor="diff">Unified diff or source patch</label>
+              <textarea id="diff" value={diff} onChange={(event) => setDiff(event.target.value)} />
+            </>
+          )}
           <button type="submit" disabled={loading}>{loading ? "Analyzing..." : "Analyze code"}</button>
           {error && <p className="error">{error}</p>}
         </form>
@@ -133,6 +221,10 @@ export default function App() {
               </select>
             </label>
             <span>{result.metadata.durationMs} ms · {result.metadata.model} · {result.metadata.languages.join(", ")}</span>
+            <div className="report-actions">
+              <button type="button" onClick={downloadJson}>Download JSON</button>
+              <button type="button" onClick={() => void downloadHtml()}>Download HTML</button>
+            </div>
           </div>
 
           <section className="findings">
