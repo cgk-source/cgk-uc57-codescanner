@@ -10,7 +10,22 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 builder.Services.AddCors();
-builder.Services.AddSingleton<IAiCodeAnalyzer, LocalDemoAnalyzer>();
+builder.Services.Configure<AzureOpenAiOptions>(
+    builder.Configuration.GetSection(AzureOpenAiOptions.SectionName));
+
+var azureOptions = builder.Configuration
+    .GetSection(AzureOpenAiOptions.SectionName)
+    .Get<AzureOpenAiOptions>();
+
+if (!string.IsNullOrWhiteSpace(azureOptions?.Endpoint) &&
+    !string.IsNullOrWhiteSpace(azureOptions.ApiKey))
+{
+    builder.Services.AddHttpClient<IAiCodeAnalyzer, AzureOpenAiAnalyzer>();
+}
+else
+{
+    builder.Services.AddSingleton<IAiCodeAnalyzer, LocalDemoAnalyzer>();
+}
 
 var app = builder.Build();
 
