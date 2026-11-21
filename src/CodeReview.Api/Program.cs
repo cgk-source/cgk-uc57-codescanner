@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using CodeReview.Api.Models;
 using CodeReview.Api.Services;
 using CodeReview.Api.Validators;
+using CodeReview.Api.Reports;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,5 +48,11 @@ app.MapPost("/api/v1/analyses", async (
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
+
+app.MapPost("/api/v1/reports/html", (AnalysisResponse analysis) =>
+{
+    var html = HtmlReportRenderer.Render(analysis);
+    return Results.Text(html, "text/html; charset=utf-8");
+});
 
 app.Run();
