@@ -8,8 +8,9 @@ public sealed class LocalDemoAnalyzer : IAiCodeAnalyzer
     public Task<AnalysisResponse> AnalyzeAsync(AnalysisRequest request, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
+        var sanitizedContent = SecretRedactor.Redact(request.Source.Content);
         var language = DetectLanguages(request);
-        var findings = BuildDemoFindings(request.Source.Content);
+        var findings = BuildDemoFindings(sanitizedContent);
         var findingsLimit = request.Options?.MaxFindings is > 0 and <= 10
             ? request.Options.MaxFindings
             : 10;
